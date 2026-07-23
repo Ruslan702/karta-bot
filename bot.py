@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 # ========== ВСТАВЬТЕ СЮДА ВАШ ТОКЕН ==========
 import os
-BOT_TOKEN = os.environ.get("8891059618:AAGrPebozBuZHJZMIQCZeWtyZ4D_uiKEakI")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 # ============================================
 
 # Загрузка данных
