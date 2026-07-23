@@ -1,1 +1,3 @@
 python-telegram-bot==21.4
+yookassa==3.5.0
+fpdf2==2.8.3
