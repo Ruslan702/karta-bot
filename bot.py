@@ -137,14 +137,14 @@ async def show_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
 {data['hidden_talent']}
 
 ---
-📄 <b>Полный отчёт включает:</b>
+📄 <b>Полный отчёт (399 ₽) включает:</b>
 • Все 4 суперсилы
 • Подробный разбор в отношениях
 • Как ведёшь себя под стрессом
 • Совет на сегодня
 • Совместимость со всеми 8 типами
 
-💰 <b>Стоимость:</b> 399 ₽"""
+💰 <b>Получить полный отчёт:</b> 399 ₽"""
     
     keyboard = [
         [InlineKeyboardButton("📄 Получить полный отчёт — 399 ₽", callback_data="buy_report")],
@@ -193,7 +193,7 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправка полного отчёта текстом (бесплатно для тестирования)"""
+    """Тестовый режим — полный отчёт бесплатно"""
     query = update.callback_query
     await query.answer()
     
@@ -202,8 +202,7 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scores = context.user_data["scores"]
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     
-    # Полный отчёт — красиво оформленный текст
-    report = f"""📄 <b>ПОЛНЫЙ ОТЧЁТ</b>
+    report = f"""🧪 <b>ТЕСТОВЫЙ РЕЖИМ — ПОЛНЫЙ ОТЧЁТ БЕСПЛАТНО</b>
 
 🎯 <b>Твой тип личности:</b> {type_name}
 <i>{data['tagline']}</i>
@@ -262,9 +261,12 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Искатель-Строитель + Хранитель-Искатель = Баланс приключений
 • Искатель-Строитель + Мечтатель-Строитель = Два лидера
 
-(Полная таблица для всех 8 типов включена в платную версию)
+(Полная таблица для всех 8 типов)
 
 ━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ <b>Это тестовая версия.</b>
+После запуска полный отчёт будет стоить 399 ₽.
 
 💬 <b>Понравилось? Поделись с другом!</b>"""
     
@@ -291,7 +293,7 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     
-    # Отправляем полный отчёт
+    # Отправляем полный отчёт (платная версия — без пометки ТЕСТОВЫЙ)
     report = f"""📄 <b>ПОЛНЫЙ ОТЧЁТ</b>
 
 🎯 <b>Твой тип личности:</b> {type_name}
@@ -351,7 +353,7 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • Искатель-Строитель + Хранитель-Искатель = Баланс приключений
 • Искатель-Строитель + Мечтатель-Строитель = Два лидера
 
-(Полная таблица для всех 8 типов включена в платную версию)
+(Полная таблица для всех 8 типов)
 
 ━━━━━━━━━━━━━━━━━━━━━
 
