@@ -7,7 +7,8 @@ logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # ========== ВСТАВЬТЕ СЮДА ВАШ ТОКЕН ==========
-BOT_TOKEN = "8891059618:AAGrPebozBuZHJZMIQCZeWtyZ4D_uiKEakI"
+import os
+BOT_TOKEN = os.environ.get("8891059618:AAGrPebozBuZHJZMIQCZeWtyZ4D_uiKEakI")
 # ============================================
 
 # Загрузка данных
