@@ -1,15 +1,15 @@
 import logging
 import json
+import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ========== ВСТАВЬТЕ СЮДА ВАШ ТОКЕН ==========
-import os
+# ========== ТОКЕН ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ ==========
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-# ============================================
+# ================================================
 
 # Загрузка данных
 with open("questions.json", "r", encoding="utf-8") as f:
@@ -36,6 +36,14 @@ def calculate_type(scores):
     type_name = TYPE_MAP.get((first, second)) or TYPE_MAP.get((second, first)) or "Искатель-Строитель"
     return type_name, sorted_scores
 
+async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
+    """Универсальная функция для отправки или редактирования сообщения"""
+    if update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    elif update.message:
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["scores"] = {"I": 0, "H": 0, "S": 0, "M": 0}
     context.user_data["current_question"] = 0
@@ -55,7 +63,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Готов?"""
     
     keyboard = [[InlineKeyboardButton("🚀 Начать тест", callback_data="start_test")]]
-    await update.message.reply_text(welcome, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await send_or_edit_message(update, welcome, reply_markup)
 
 async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q_idx = context.user_data["current_question"]
@@ -74,10 +84,7 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    if update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode="HTML")
-    else:
-        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
+    await send_or_edit_message(update, text, reply_markup)
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -136,7 +143,8 @@ async def show_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔄 Пройти заново", callback_data="start_test")],
     ]
     
-    await update.callback_query.edit_message_text(result, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await send_or_edit_message(update, result, reply_markup)
 
 async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -167,9 +175,6 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     type_name = context.user_data.get("type_name", "Искатель-Строитель")
     data = PERSONALITY_TYPES[type_name]
-    
-    # Здесь будет проверка оплаты через ЮKassa
-    # Пока — имитация успешной оплаты
     
     await query.edit_message_text(
         f"✅ <b>Оплата подтверждена!</b>\n\n"
@@ -255,7 +260,12 @@ async def back_to_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await show_result(update, context)
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Действие отменено. Напиши /start, чтобы начать заново.")
+    text = "Действие отменено. Напиши /start, чтобы начать заново."
+    if update.message:
+        await update.message.reply_text(text)
+    elif update.callback_query:
+        await update.callback_query.answer()
+        await update.callback_query.edit_message_text(text)
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
