@@ -43,7 +43,6 @@ async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
         try:
             await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
         except Exception:
-            # Если редактирование не удалось (текст тот же), отправляем новое сообщение
             await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif update.message:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
@@ -70,6 +69,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await send_or_edit_message(update, welcome, reply_markup)
+
+async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Запускает тест — сбрасывает счётчик и показывает первый вопрос"""
+    context.user_data["scores"] = {"I": 0, "H": 0, "S": 0, "M": 0}
+    context.user_data["current_question"] = 0
+    context.user_data["answers"] = []
+    await ask_question(update, context)
 
 async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q_idx = context.user_data["current_question"]
@@ -279,7 +285,7 @@ def main():
     
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("cancel", cancel))
-    application.add_handler(CallbackQueryHandler(start, pattern="^start_test$"))
+    application.add_handler(CallbackQueryHandler(start_test, pattern="^start_test$"))
     application.add_handler(CallbackQueryHandler(handle_answer, pattern="^answer_"))
     application.add_handler(CallbackQueryHandler(buy_report, pattern="^buy_report$"))
     application.add_handler(CallbackQueryHandler(check_payment, pattern="^check_payment$"))
