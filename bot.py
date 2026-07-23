@@ -40,7 +40,11 @@ async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
     """Универсальная функция для отправки или редактирования сообщения"""
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        try:
+            await update.callback_query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception:
+            # Если редактирование не удалось (текст тот же), отправляем новое сообщение
+            await update.callback_query.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     elif update.message:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
@@ -265,7 +269,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text)
     elif update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.edit_message_text(text)
+        try:
+            await update.callback_query.edit_message_text(text)
+        except Exception:
+            await update.callback_query.message.reply_text(text)
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
