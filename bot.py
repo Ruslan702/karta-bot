@@ -1,11 +1,8 @@
 import logging
 import json
 import os
-import uuid
-from io import BytesIO
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from fpdf import FPDF
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -41,111 +38,6 @@ def calculate_type(scores):
     type_name = TYPE_MAP.get((first, second)) or TYPE_MAP.get((second, first)) or "Искатель-Строитель"
     return type_name, sorted_scores
 
-# ========== PDF ГЕНЕРАЦИЯ ==========
-class PDFReport(FPDF):
-    def header(self):
-        self.set_font("DejaVu", "B", 16)
-        self.set_text_color(88, 101, 242)
-        self.cell(0, 10, "Кто ты на самом деле", ln=True, align="C")
-        self.ln(5)
-    
-    def chapter_title(self, title):
-        self.set_font("DejaVu", "B", 14)
-        self.set_text_color(33, 33, 33)
-        self.cell(0, 10, title, ln=True)
-        self.ln(2)
-    
-    def chapter_body(self, body):
-        self.set_font("DejaVu", "", 11)
-        self.set_text_color(66, 66, 66)
-        self.multi_cell(0, 7, body)
-        self.ln(3)
-
-def generate_pdf(type_name, sorted_scores, data):
-    pdf = PDFReport()
-    
-    # Подключаем шрифт с поддержкой кириллицы
-    # Railway скачает шрифт автоматически при первом запуске
-    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    if not os.path.exists(font_path):
-        # Заглушка: если шрифта нет, используем стандартный (только латиница)
-        # На Railway нужно будет добавить шрифт или использовать другой подход
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.add_font("DejaVu", "B", font_path.replace("Sans", "Sans-Bold"), uni=True)
-    else:
-        pdf.add_font("DejaVu", "", font_path, uni=True)
-        pdf.add_font("DejaVu", "B", font_path.replace("Sans", "Sans-Bold"), uni=True)
-    
-    pdf.add_page()
-    
-    # Титул
-    pdf.set_font("DejaVu", "B", 20)
-    pdf.set_text_color(88, 101, 242)
-    pdf.cell(0, 15, f"Тип личности: {type_name}", ln=True, align="C")
-    pdf.ln(5)
-    
-    # Теглайн
-    pdf.set_font("DejaVu", "I", 12)
-    pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 10, data['tagline'], ln=True, align="C")
-    pdf.ln(10)
-    
-    # Профиль баллов
-    pdf.chapter_title("📊 Твой профиль")
-    scores_text = "\n".join([
-        f"{'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
-        f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
-        for k, v in sorted_scores
-    ])
-    pdf.chapter_body(scores_text)
-    
-    # Кто ты
-    pdf.chapter_title("💡 Кто ты")
-    pdf.chapter_body(data['core'])
-    
-    # Суперсилы
-    pdf.chapter_title("✨ Твои суперсилы")
-    strengths_text = "\n".join([f"• {s}" for s in data['strengths']])
-    pdf.chapter_body(strengths_text)
-    
-    # Скрытый талант
-    pdf.chapter_title("💎 Скрытый талант")
-    pdf.chapter_body(data['hidden_talent'])
-    
-    # Отношения
-    pdf.add_page()
-    pdf.chapter_title("💕 В отношениях")
-    pdf.chapter_body(data['in_relationships'])
-    
-    # Стресс
-    pdf.chapter_title("😰 Под стрессом")
-    pdf.chapter_body(data['under_stress'])
-    
-    # Совет
-    pdf.chapter_title("✨ Совет на сегодня")
-    pdf.chapter_body(data['advice_today'])
-    
-    # Совместимость
-    pdf.add_page()
-    pdf.chapter_title("📄 Совместимость со всеми типами")
-    compatibility_text = """Искатель-Строитель + Хранитель-Мечтатель = Идеальная пара для создания дома
-Искатель-Строитель + Строитель-Хранитель = Надёжный союз, но риск рутины
-Искатель-Строитель + Мечтатель-Искатель = Взаимное вдохновение, но хаос
-Искатель-Строитель + Искатель-Хранитель = Сильная команда, если есть цель
-Искатель-Строитель + Строитель-Мечтатель = Амбициозный тандем
-Искатель-Строитель + Хранитель-Искатель = Баланс приключений и уюта
-Искатель-Строитель + Мечтатель-Строитель = Два лидера — или конфликт, или империя
-
-(Полная таблица совместимости для всех 8 типов)"""
-    pdf.chapter_body(compatibility_text)
-    
-    # Сохраняем в буфер
-    pdf_bytes = BytesIO()
-    pdf.output(pdf_bytes)
-    pdf_bytes.seek(0)
-    return pdf_bytes
-
-# ========== УТИЛИТЫ ==========
 async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
     if update.callback_query:
         await update.callback_query.answer()
@@ -156,7 +48,6 @@ async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
     elif update.message:
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
-# ========== ОБРАБОТЧИКИ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["scores"] = {"I": 0, "H": 0, "S": 0, "M": 0}
     context.user_data["current_question"] = 0
@@ -269,9 +160,7 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     type_name = context.user_data.get("type_name", "Искатель-Строитель")
     
-    # Проверяем, есть ли ключи ЮKassa
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
-        # Режим без оплаты (пока нет ключей)
         text = f"""💳 <b>Оплата отчёта</b>
 
 Товар: Полный отчёт «{type_name}»
@@ -286,7 +175,6 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("◀️ Назад к результату", callback_data="back_to_result")],
         ]
     else:
-        # Реальная оплата через ЮKassa
         text = f"""💳 <b>Оплата отчёта</b>
 
 Товар: Полный отчёт «{type_name}»
@@ -305,7 +193,7 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправка отчёта без оплаты (тестовый режим)"""
+    """Отправка полного отчёта текстом (бесплатно для тестирования)"""
     query = update.callback_query
     await query.answer()
     
@@ -314,21 +202,73 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scores = context.user_data["scores"]
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     
-    # Генерируем PDF
-    try:
-        pdf_bytes = generate_pdf(type_name, sorted_scores, data)
-        await query.edit_message_text("📄 Генерирую ваш персональный отчёт...", parse_mode="HTML")
-        
-        await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=pdf_bytes,
-            filename=f"Отчет_{type_name.replace(' ', '_')}.pdf",
-            caption=f"✅ Ваш персональный отчёт «{type_name}» готов!"
-        )
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        # Fallback: отправляем текстом
-        await send_report_text(query, type_name, data, sorted_scores)
+    # Полный отчёт — красиво оформленный текст
+    report = f"""📄 <b>ПОЛНЫЙ ОТЧЁТ</b>
+
+🎯 <b>Твой тип личности:</b> {type_name}
+<i>{data['tagline']}</i>
+
+━━━━━━━━━━━━━━━━━━━━━
+
+📊 <b>ТВОЙ ПРОФИЛЬ</b>
+
+{chr(10).join([
+    f"  {'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
+    f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
+    for k, v in sorted_scores
+])}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 <b>КТО ТЫ</b>
+{data['core']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ <b>ТВОИ СУПЕРСИЛЫ</b>
+
+{chr(10).join([f"  ✨ {s}" for s in data['strengths']])}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💎 <b>СКРЫТЫЙ ТАЛАНТ</b>
+{data['hidden_talent']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💕 <b>В ОТНОШЕНИЯХ</b>
+{data['in_relationships']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+😰 <b>ПОД СТРЕССОМ</b>
+{data['under_stress']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ <b>СОВЕТ НА СЕГОДНЯ</b>
+{data['advice_today']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+📄 <b>СОВМЕСТИМОСТЬ</b>
+
+Подробная таблица совместимости со всеми 8 типами:
+• Искатель-Строитель + Хранитель-Мечтатель = Идеальная пара
+• Искатель-Строитель + Строитель-Хранитель = Надёжный союз
+• Искатель-Строитель + Мечтатель-Искатель = Взаимное вдохновение
+• Искатель-Строитель + Искатель-Хранитель = Сильная команда
+• Искатель-Строитель + Строитель-Мечтатель = Амбициозный тандем
+• Искатель-Строитель + Хранитель-Искатель = Баланс приключений
+• Искатель-Строитель + Мечтатель-Строитель = Два лидера
+
+(Полная таблица для всех 8 типов включена в платную версию)
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💬 <b>Понравилось? Поделись с другом!</b>"""
+    
+    await query.edit_message_text(report, parse_mode="HTML")
     
     # Предложение подписки
     await send_subscription_offer(update, context, type_name)
@@ -351,45 +291,80 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="HTML"
     )
     
-    # Генерируем и отправляем PDF
-    try:
-        pdf_bytes = generate_pdf(type_name, sorted_scores, data)
-        await context.bot.send_document(
-            chat_id=update.effective_chat.id,
-            document=pdf_bytes,
-            filename=f"Отчет_{type_name.replace(' ', '_')}.pdf",
-            caption=f"✅ Ваш персональный отчёт «{type_name}» готов!"
-        )
-    except Exception as e:
-        logger.error(f"PDF generation error: {e}")
-        await send_report_text(query, type_name, data, sorted_scores)
+    # Отправляем полный отчёт
+    report = f"""📄 <b>ПОЛНЫЙ ОТЧЁТ</b>
+
+🎯 <b>Твой тип личности:</b> {type_name}
+<i>{data['tagline']}</i>
+
+━━━━━━━━━━━━━━━━━━━━━
+
+📊 <b>ТВОЙ ПРОФИЛЬ</b>
+
+{chr(10).join([
+    f"  {'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
+    f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
+    for k, v in sorted_scores
+])}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💡 <b>КТО ТЫ</b>
+{data['core']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ <b>ТВОИ СУПЕРСИЛЫ</b>
+
+{chr(10).join([f"  ✨ {s}" for s in data['strengths']])}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💎 <b>СКРЫТЫЙ ТАЛАНТ</b>
+{data['hidden_talent']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💕 <b>В ОТНОШЕНИЯХ</b>
+{data['in_relationships']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+😰 <b>ПОД СТРЕССОМ</b>
+{data['under_stress']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+✨ <b>СОВЕТ НА СЕГОДНЯ</b>
+{data['advice_today']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+📄 <b>СОВМЕСТИМОСТЬ</b>
+
+Подробная таблица совместимости со всеми 8 типами:
+• Искатель-Строитель + Хранитель-Мечтатель = Идеальная пара
+• Искатель-Строитель + Строитель-Хранитель = Надёжный союз
+• Искатель-Строитель + Мечтатель-Искатель = Взаимное вдохновение
+• Искатель-Строитель + Искатель-Хранитель = Сильная команда
+• Искатель-Строитель + Строитель-Мечтатель = Амбициозный тандем
+• Искатель-Строитель + Хранитель-Искатель = Баланс приключений
+• Искатель-Строитель + Мечтатель-Строитель = Два лидера
+
+(Полная таблица для всех 8 типов включена в платную версию)
+
+━━━━━━━━━━━━━━━━━━━━━
+
+💬 <b>Понравилось? Поделись с другом!</b>"""
+    
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=report,
+        parse_mode="HTML"
+    )
     
     # Предложение подписки
     await send_subscription_offer(update, context, type_name)
-
-async def send_report_text(query, type_name, data, sorted_scores):
-    """Fallback: отправка отчёта текстом, если PDF не сработал"""
-    await query.edit_message_text(
-        f"✅ <b>Оплата подтверждена!</b>\n\n"
-        f"Отправляю твой персональный отчёт «{type_name}»...\n\n"
-        f"📄 <b>СТРАНИЦА 1 — ТВОЙ ПРОФИЛЬ</b>\n\n"
-        f"<b>{type_name}</b>\n"
-        f"{data['tagline']}\n\n"
-        f"<b>Кто ты:</b>\n{data['core']}\n\n"
-        f"<b>Твои суперсилы:</b>\n"
-        + "\n".join([f"  ✨ {s}" for s in data['strengths']]) + "\n\n"
-        f"<b>Скрытый талант:</b>\n{data['hidden_talent']}\n\n"
-        f"---\n\n"
-        f"📄 <b>СТРАНИЦА 2 — ОТНОШЕНИЯ И СТРЕСС</b>\n\n"
-        f"💕 <b>В отношениях:</b>\n{data['in_relationships']}\n\n"
-        f"😰 <b>Под стрессом:</b>\n{data['under_stress']}\n\n"
-        f"✨ <b>Совет на сегодня:</b>\n{data['advice_today']}\n\n"
-        f"---\n\n"
-        f"📄 <b>СТРАНИЦА 3 — СОВМЕСТИМОСТЬ</b>\n\n"
-        f"Подробная таблица совместимости со всеми 8 типами\nвключена в полный PDF-отчёт.\n\n"
-        f"💬 Понравилось? Поделись с другом!",
-        parse_mode="HTML"
-    )
 
 async def send_subscription_offer(update, context, type_name):
     """Отправка предложения подписки"""
