@@ -20,23 +20,39 @@ with open("questions.json", "r", encoding="utf-8") as f:
 with open("personality_types.json", "r", encoding="utf-8") as f:
     PERSONALITY_TYPES = json.load(f)
 
-TYPE_MAP = {
-    ("I", "S"): "Искатель-Строитель",
-    ("H", "M"): "Хранитель-Мечтатель",
-    ("S", "H"): "Строитель-Хранитель",
-    ("M", "I"): "Мечтатель-Искатель",
-    ("I", "H"): "Искатель-Хранитель",
-    ("S", "M"): "Строитель-Мечтатель",
-    ("H", "I"): "Хранитель-Искатель",
-    ("M", "S"): "Мечтатель-Строитель",
+# 12 архетипов души
+ARCHETYPES = {
+    "M": "Проводник Истины",
+    "A": "Алхимик Реальности",
+    "S": "Странник Вечности",
+    "R": "Разрушитель Иллюзий",
+    "L": "Слияние Душ",
+    "Z": "Зеркало Истины",
+    "Ar": "Архитектор Порядка",
+    "C": "Целитель Миров",
+    "V": "Воин Света",
+    "H": "Хранитель Земли",
+    "T": "Творец Вселенной",
+    "D": "Светлое Дитя"
 }
 
-def calculate_type(scores):
+def calculate_archetype(scores):
+    """Определяет основной и вторичный архетипы"""
     sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-    first = sorted_scores[0][0]
-    second = sorted_scores[1][0]
-    type_name = TYPE_MAP.get((first, second)) or TYPE_MAP.get((second, first)) or "Искатель-Строитель"
-    return type_name, sorted_scores
+    primary = sorted_scores[0][0]
+    secondary = sorted_scores[1][0]
+    
+    primary_name = ARCHETYPES.get(primary, "Проводник Истины")
+    secondary_name = ARCHETYPES.get(secondary, "Алхимик Реальности")
+    
+    # Комбинированный тип
+    combo_name = f"{primary_name}-{secondary_name}"
+    
+    # Если комбинации нет в personality_types, используем основной
+    if combo_name not in PERSONALITY_TYPES:
+        combo_name = primary_name
+    
+    return combo_name, sorted_scores
 
 async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
     if update.callback_query:
@@ -49,7 +65,8 @@ async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["scores"] = {"I": 0, "H": 0, "S": 0, "M": 0}
+    # Инициализируем счётчики для 12 архетипов
+    context.user_data["scores"] = {k: 0 for k in ARCHETYPES.keys()}
     context.user_data["current_question"] = 0
     context.user_data["answers"] = []
     
@@ -57,21 +74,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 <b>Кто ты на самом деле</b>
 
-15 вопросов — и ты узнаешь:
-• Свой тип личности
-• Скрытые таланты
-• Как взаимодействовать с близкими
+12 вопросов — и ты узнаешь:
+• Свой архетип души
+• Миссию в этом воплощении
+• Кармические блоки и ключи
 
-🎁 После теста — персональный прогноз
+🎁 После теста — персональный отчёт
 
-Готов?"""
+Это не развлечение. Это зеркало.
+Твоя душа говорит через него.
+
+Готов услышать?"""
     
     keyboard = [[InlineKeyboardButton("🚀 Начать тест", callback_data="start_test")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await send_or_edit_message(update, welcome, reply_markup)
 
 async def start_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["scores"] = {"I": 0, "H": 0, "S": 0, "M": 0}
+    context.user_data["scores"] = {k: 0 for k in ARCHETYPES.keys()}
     context.user_data["current_question"] = 0
     context.user_data["answers"] = []
     await ask_question(update, context)
@@ -102,52 +122,57 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q_idx = context.user_data["current_question"]
     answer = QUESTIONS[q_idx]["answers"][answer_idx]
     
-    for category, points in answer["scores"].items():
-        context.user_data["scores"][category] += points
+    for archetype, points in answer["scores"].items():
+        context.user_data["scores"][archetype] += points
     
     context.user_data["current_question"] += 1
     return await ask_question(update, context)
 
 async def show_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scores = context.user_data["scores"]
-    type_name, sorted_scores = calculate_type(scores)
-    context.user_data["type_name"] = type_name
-    data = PERSONALITY_TYPES[type_name]
+    archetype_name, sorted_scores = calculate_archetype(scores)
+    context.user_data["archetype_name"] = archetype_name
     
+    # Берём данные основного архетипа
+    primary_key = sorted_scores[0][0]
+    primary_name = ARCHETYPES.get(primary_key, "Проводник Истины")
+    data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
+    
+    # Формируем текст профиля
     scores_text = "\n".join([
-        f"  {'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
-        f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
-        for k, v in sorted_scores
+        f"  {'✨' if i == 0 else '◦'} {ARCHETYPES.get(k, k)}: {v} баллов"
+        for i, (k, v) in enumerate(sorted_scores[:4])
     ])
     
-    result = f"""🎯 <b>Твой тип личности:</b> {type_name}
+    result = f"""🎯 <b>Твой архетип души:</b> {archetype_name}
 
-{data['tagline']}
+<i>{data['tagline']}</i>
 
 📊 <b>Твой профиль:</b>
 {scores_text}
 
 💡 <b>Кратко о тебе:</b>
-{data['core']}
+{data['core'][:200]}...
 
 ✨ <b>Твоя главная суперсила:</b>
 {data['strengths'][0]}
 
 💎 <b>Скрытый талант:</b>
-{data['hidden_talent']}
+{data['hidden_talent'][:150]}...
 
 ---
-📄 <b>Полный отчёт (399 ₽) включает:</b>
-• Все 4 суперсилы
-• Подробный разбор в отношениях
-• Как ведёшь себя под стрессом
-• Совет на сегодня
-• Совместимость со всеми 8 типами
+📄 <b>Полный портал души (399 ₽) включает:</b>
+• Миссия в этом воплощении
+• Прошлая жизнь — кем ты был
+• Кармические блоки и как их снять
+• Как активировать свой код
+• Роль в матрице / Вселенной
+• Совместимость со всеми 12 архетипами
 
-💰 <b>Получить полный отчёт:</b> 399 ₽"""
+💰 <b>Открыть портал души:</b> 399 ₽"""
     
     keyboard = [
-        [InlineKeyboardButton("📄 Получить полный отчёт — 399 ₽", callback_data="buy_report")],
+        [InlineKeyboardButton("📄 Открыть портал души — 399 ₽", callback_data="buy_report")],
         [InlineKeyboardButton("🔄 Пройти заново", callback_data="start_test")],
     ]
     
@@ -158,26 +183,26 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    type_name = context.user_data.get("type_name", "Искатель-Строитель")
+    archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
-        text = f"""💳 <b>Оплата отчёта</b>
+        text = f"""💳 <b>Открытие портала души</b>
 
-Товар: Полный отчёт «{type_name}»
+Архетип: {archetype_name}
 Сумма: 399 ₽
 
 ⚠️ <b>Платёжная система временно недоступна</b>
 
-Но вы можете получить отчёт бесплатно в рамках тестирования! 👇"""
+Но вы можете открыть портал бесплатно в рамках тестирования! 👇"""
         
         keyboard = [
-            [InlineKeyboardButton("📄 Получить отчёт бесплатно", callback_data="get_free_report")],
+            [InlineKeyboardButton("📄 Открыть портал бесплатно", callback_data="get_free_report")],
             [InlineKeyboardButton("◀️ Назад к результату", callback_data="back_to_result")],
         ]
     else:
-        text = f"""💳 <b>Оплата отчёта</b>
+        text = f"""💳 <b>Открытие портала души</b>
 
-Товар: Полный отчёт «{type_name}»
+Архетип: {archetype_name}
 Сумма: 399 ₽
 
 Для оплаты перейдите по ссылке:
@@ -193,29 +218,36 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Тестовый режим — полный отчёт бесплатно"""
+    """Тестовый режим — полный портал души бесплатно"""
     query = update.callback_query
     await query.answer()
     
-    type_name = context.user_data.get("type_name", "Искатель-Строитель")
-    data = PERSONALITY_TYPES[type_name]
-    scores = context.user_data["scores"]
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
-    report = f"""🧪 <b>ТЕСТОВЫЙ РЕЖИМ — ПОЛНЫЙ ОТЧЁТ БЕСПЛАТНО</b>
+    # Берём основной архетип
+    primary_key = context.user_data.get("scores", {})
+    if primary_key:
+        sorted_scores = sorted(primary_key.items(), key=lambda x: x[1], reverse=True)
+        primary_name = ARCHETYPES.get(sorted_scores[0][0], "Проводник Истины")
+    else:
+        primary_name = "Проводник Истины"
+    
+    data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
+    
+    report = f"""🧪 <b>ТЕСТОВЫЙ РЕЖИМ — ПОЛНЫЙ ПОРТАЛ ДУШИ</b>
 
-🎯 <b>Твой тип личности:</b> {type_name}
+🎯 <b>Твой архетип:</b> {archetype_name}
 <i>{data['tagline']}</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-📊 <b>ТВОЙ ПРОФИЛЬ</b>
+🌟 <b>МИССИЯ В ЭТОМ ВОПЛОЩЕНИИ</b>
+{data['mission']}
 
-{chr(10).join([
-    f"  {'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
-    f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
-    for k, v in sorted_scores
-])}
+━━━━━━━━━━━━━━━━━━━━━
+
+🕰 <b>ПРОШЛАЯ ЖИЗНЬ</b>
+{data['past_life']}
 
 ━━━━━━━━━━━━━━━━━━━━━
 
@@ -235,6 +267,21 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━━━━
 
+⛓ <b>КАРМИЧЕСКИЙ БЛОК</b>
+{data['karmic_block']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🔑 <b>КАК АКТИВИРОВАТЬ СВОЙ КОД</b>
+{data['activation']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🌐 <b>ТВОЯ РОЛЬ В МАТРИЦЕ</b>
+{data['matrix_role']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
 💕 <b>В ОТНОШЕНИЯХ</b>
 {data['in_relationships']}
 
@@ -251,63 +298,55 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━
 
 📄 <b>СОВМЕСТИМОСТЬ</b>
-
-Подробная таблица совместимости со всеми 8 типами:
-• Искатель-Строитель + Хранитель-Мечтатель = Идеальная пара
-• Искатель-Строитель + Строитель-Хранитель = Надёжный союз
-• Искатель-Строитель + Мечтатель-Искатель = Взаимное вдохновение
-• Искатель-Строитель + Искатель-Хранитель = Сильная команда
-• Искатель-Строитель + Строитель-Мечтатель = Амбициозный тандем
-• Искатель-Строитель + Хранитель-Искатель = Баланс приключений
-• Искатель-Строитель + Мечтатель-Строитель = Два лидера
-
-(Полная таблица для всех 8 типов)
+{data['compatibility']}
 
 ━━━━━━━━━━━━━━━━━━━━━
 
 ⚠️ <b>Это тестовая версия.</b>
-После запуска полный отчёт будет стоить 399 ₽.
+После запуска полный портал души будет стоить 399 ₽.
 
 💬 <b>Понравилось? Поделись с другом!</b>"""
     
     await query.edit_message_text(report, parse_mode="HTML")
     
     # Предложение подписки
-    await send_subscription_offer(update, context, type_name)
+    await send_subscription_offer(update, context, archetype_name)
 
 async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    type_name = context.user_data.get("type_name", "Искатель-Строитель")
-    data = PERSONALITY_TYPES[type_name]
-    scores = context.user_data["scores"]
-    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
-    # Здесь будет проверка оплаты через ЮKassa API
-    # Пока — имитация успешной оплаты
+    primary_key = context.user_data.get("scores", {})
+    if primary_key:
+        sorted_scores = sorted(primary_key.items(), key=lambda x: x[1], reverse=True)
+        primary_name = ARCHETYPES.get(sorted_scores[0][0], "Проводник Истины")
+    else:
+        primary_name = "Проводник Истины"
+    
+    data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
     
     await query.edit_message_text(
         f"✅ <b>Оплата подтверждена!</b>\n\n"
-        f"Отправляю твой персональный отчёт «{type_name}»...",
+        f"Открываю твой портал души «{archetype_name}»...",
         parse_mode="HTML"
     )
     
-    # Отправляем полный отчёт (платная версия — без пометки ТЕСТОВЫЙ)
-    report = f"""📄 <b>ПОЛНЫЙ ОТЧЁТ</b>
+    report = f"""📄 <b>ПОЛНЫЙ ПОРТАЛ ДУШИ</b>
 
-🎯 <b>Твой тип личности:</b> {type_name}
+🎯 <b>Твой архетип:</b> {archetype_name}
 <i>{data['tagline']}</i>
 
 ━━━━━━━━━━━━━━━━━━━━━
 
-📊 <b>ТВОЙ ПРОФИЛЬ</b>
+🌟 <b>МИССИЯ В ЭТОМ ВОПЛОЩЕНИИ</b>
+{data['mission']}
 
-{chr(10).join([
-    f"  {'🔥' if k=='I' else '🌙' if k=='H' else '🌳' if k=='S' else '🚀'} "
-    f"{'Искатель' if k=='I' else 'Хранитель' if k=='H' else 'Строитель' if k=='S' else 'Мечтатель'}: {v} баллов"
-    for k, v in sorted_scores
-])}
+━━━━━━━━━━━━━━━━━━━━━
+
+🕰 <b>ПРОШЛАЯ ЖИЗНЬ</b>
+{data['past_life']}
 
 ━━━━━━━━━━━━━━━━━━━━━
 
@@ -327,6 +366,21 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━━━━
 
+⛓ <b>КАРМИЧЕСКИЙ БЛОК</b>
+{data['karmic_block']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🔑 <b>КАК АКТИВИРОВАТЬ СВОЙ КОД</b>
+{data['activation']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
+🌐 <b>ТВОЯ РОЛЬ В МАТРИЦЕ</b>
+{data['matrix_role']}
+
+━━━━━━━━━━━━━━━━━━━━━
+
 💕 <b>В ОТНОШЕНИЯХ</b>
 {data['in_relationships']}
 
@@ -343,17 +397,7 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━
 
 📄 <b>СОВМЕСТИМОСТЬ</b>
-
-Подробная таблица совместимости со всеми 8 типами:
-• Искатель-Строитель + Хранитель-Мечтатель = Идеальная пара
-• Искатель-Строитель + Строитель-Хранитель = Надёжный союз
-• Искатель-Строитель + Мечтатель-Искатель = Взаимное вдохновение
-• Искатель-Строитель + Искатель-Хранитель = Сильная команда
-• Искатель-Строитель + Строитель-Мечтатель = Амбициозный тандем
-• Искатель-Строитель + Хранитель-Искатель = Баланс приключений
-• Искатель-Строитель + Мечтатель-Строитель = Два лидера
-
-(Полная таблица для всех 8 типов)
+{data['compatibility']}
 
 ━━━━━━━━━━━━━━━━━━━━━
 
@@ -366,22 +410,22 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     # Предложение подписки
-    await send_subscription_offer(update, context, type_name)
+    await send_subscription_offer(update, context, archetype_name)
 
-async def send_subscription_offer(update, context, type_name):
+async def send_subscription_offer(update, context, archetype_name):
     """Отправка предложения подписки"""
-    sub_text = f"""📬 <b>Еженедельные прогнозы для {type_name}</b>
+    sub_text = f"""📬 <b>Коды недели для {archetype_name}</b>
 
 Каждое воскресенье:
-✨ Прогноз на неделю
-🎯 Мини-задание для твоего типа
-💡 Совет по взаимодействию с другими
+✨ Энергетическая практика под твой архетип
+🎯 Мини-задание для роста осознанности
+💡 Ключи взаимодействия с другими архетипами
 
 💰 <b>199 ₽/месяц</b>
 Отмена в любой момент."""
     
     keyboard = [
-        [InlineKeyboardButton("📬 Подписаться — 199 ₽/мес", callback_data="buy_subscription")],
+        [InlineKeyboardButton("📬 Получить коды — 199 ₽/мес", callback_data="buy_subscription")],
         [InlineKeyboardButton("👥 Проверить друга", callback_data="start_test")],
     ]
     
@@ -398,7 +442,7 @@ async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     text = """💳 <b>Оформление подписки</b>
 
-Тариф: Еженедельные прогнозы
+Тариф: Коды недели
 Сумма: 199 ₽/месяц
 
 Для оплаты перейдите по ссылке:
@@ -417,12 +461,12 @@ async def confirm_subscription(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.callback_query
     await query.answer()
     
-    type_name = context.user_data.get("type_name", "Искатель-Строитель")
+    archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
     await query.edit_message_text(
         f"🎉 <b>Подписка оформлена!</b>\n\n"
-        f"Тип: {type_name}\n"
-        f"Следующий прогноз: в это воскресенье\n\n"
+        f"Архетип: {archetype_name}\n"
+        f"Следующий код: в это воскресенье\n\n"
         f"Ты можешь отменить подписку в любой момент через /cancel",
         parse_mode="HTML"
     )
