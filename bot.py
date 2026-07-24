@@ -3,6 +3,7 @@ import json
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from yookassa import Payment, Configuration
 
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -12,6 +13,11 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 YOOKASSA_SHOP_ID = os.environ.get("YOOKASSA_SHOP_ID")
 YOOKASSA_SECRET_KEY = os.environ.get("YOOKASSA_SECRET_KEY")
 # =========================================
+
+# Настройка ЮKassa
+if YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY:
+    Configuration.account_id = YOOKASSA_SHOP_ID
+    Configuration.secret_key = YOOKASSA_SECRET_KEY
 
 # Загрузка данных
 with open("questions.json", "r", encoding="utf-8") as f:
@@ -45,10 +51,8 @@ def calculate_archetype(scores):
     primary_name = ARCHETYPES.get(primary, "Проводник Истины")
     secondary_name = ARCHETYPES.get(secondary, "Алхимик Реальности")
     
-    # Комбинированный тип
     combo_name = f"{primary_name}-{secondary_name}"
     
-    # Если комбинации нет в personality_types, используем основной
     if combo_name not in PERSONALITY_TYPES:
         combo_name = primary_name
     
@@ -65,7 +69,6 @@ async def send_or_edit_message(update, text, reply_markup, parse_mode="HTML"):
         await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Инициализируем счётчики для 12 архетипов
     context.user_data["scores"] = {k: 0 for k in ARCHETYPES.keys()}
     context.user_data["current_question"] = 0
     context.user_data["answers"] = []
@@ -133,12 +136,10 @@ async def show_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     archetype_name, sorted_scores = calculate_archetype(scores)
     context.user_data["archetype_name"] = archetype_name
     
-    # Берём данные основного архетипа
     primary_key = sorted_scores[0][0]
     primary_name = ARCHETYPES.get(primary_key, "Проводник Истины")
     data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
     
-    # Формируем текст профиля
     scores_text = "\n".join([
         f"  {'✨' if i == 0 else '◦'} {ARCHETYPES.get(k, k)}: {v} баллов"
         for i, (k, v) in enumerate(sorted_scores[:4])
@@ -184,8 +185,11 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
+    user_id = update.effective_user.id
     
+    # Проверяем, настроена ли ЮKassa
     if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
+        # Режим без оплаты (если ключи не добавлены)
         text = f"""💳 <b>Открытие портала души</b>
 
 Архетип: {archetype_name}
@@ -199,23 +203,56 @@ async def buy_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📄 Открыть портал бесплатно", callback_data="get_free_report")],
             [InlineKeyboardButton("◀️ Назад к результату", callback_data="back_to_result")],
         ]
-    else:
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+    
+    # Создаём реальный платёж через ЮKassa
+    try:
+        payment = Payment.create({
+            "amount": {
+                "value": "399.00",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/{context.bot.username}"
+            },
+            "capture": True,
+            "description": f"Портал души: {archetype_name}",
+            "metadata": {
+                "user_id": str(user_id),
+                "product": "report",
+                "archetype": archetype_name
+            }
+        })
+        
+        # Сохраняем ID платежа
+        context.user_data["payment_id"] = payment.id
+        pay_url = payment.confirmation.confirmation_url
+        
         text = f"""💳 <b>Открытие портала души</b>
 
 Архетип: {archetype_name}
 Сумма: 399 ₽
 
-Для оплаты перейдите по ссылке:
-[ССЫЛКА_НА_ОПЛАТУ_ЮKASSA]
-
-После оплаты нажмите кнопку ниже 👇"""
+Нажмите кнопку ниже для оплаты 👇"""
         
         keyboard = [
+            [InlineKeyboardButton("💳 Оплатить 399 ₽", url=pay_url)],
             [InlineKeyboardButton("✅ Я оплатил(а)", callback_data="check_payment")],
-            [InlineKeyboardButton("◀️ Назад к результату", callback_data="back_to_result")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")],
         ]
-    
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Payment creation error: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка создания платежа. Попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
 
 async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Тестовый режим — полный портал души бесплатно"""
@@ -224,7 +261,6 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
-    # Берём основной архетип
     primary_key = context.user_data.get("scores", {})
     if primary_key:
         sorted_scores = sorted(primary_key.items(), key=lambda x: x[1], reverse=True)
@@ -308,32 +344,42 @@ async def get_free_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💬 <b>Понравилось? Поделись с другом!</b>"""
     
     await query.edit_message_text(report, parse_mode="HTML")
-    
-    # Предложение подписки
     await send_subscription_offer(update, context, archetype_name)
 
 async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    payment_id = context.user_data.get("payment_id")
     archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
-    primary_key = context.user_data.get("scores", {})
-    if primary_key:
-        sorted_scores = sorted(primary_key.items(), key=lambda x: x[1], reverse=True)
-        primary_name = ARCHETYPES.get(sorted_scores[0][0], "Проводник Истины")
-    else:
-        primary_name = "Проводник Истины"
+    if not payment_id:
+        await query.edit_message_text(
+            "❌ Платёж не найден. Попробуйте снова.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📄 Открыть портал — 399 ₽", callback_data="buy_report")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
+        return
     
-    data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
-    
-    await query.edit_message_text(
-        f"✅ <b>Оплата подтверждена!</b>\n\n"
-        f"Открываю твой портал души «{archetype_name}»...",
-        parse_mode="HTML"
-    )
-    
-    report = f"""📄 <b>ПОЛНЫЙ ПОРТАЛ ДУШИ</b>
+    try:
+        payment = Payment.find_one(payment_id)
+        
+        if payment.status == "succeeded":
+            # Оплата прошла — отправляем отчёт
+            await query.edit_message_text("✅ <b>Оплата подтверждена!</b>\n\nОткрываю твой портал души...", parse_mode="HTML")
+            
+            primary_key = context.user_data.get("scores", {})
+            if primary_key:
+                sorted_scores = sorted(primary_key.items(), key=lambda x: x[1], reverse=True)
+                primary_name = ARCHETYPES.get(sorted_scores[0][0], "Проводник Истины")
+            else:
+                primary_name = "Проводник Истины"
+            
+            data = PERSONALITY_TYPES.get(primary_name, PERSONALITY_TYPES["Проводник Истины"])
+            
+            report = f"""📄 <b>ПОЛНЫЙ ПОРТАЛ ДУШИ</b>
 
 🎯 <b>Твой архетип:</b> {archetype_name}
 <i>{data['tagline']}</i>
@@ -402,15 +448,42 @@ async def check_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ━━━━━━━━━━━━━━━━━━━━━
 
 💬 <b>Понравилось? Поделись с другом!</b>"""
-    
-    await context.bot.send_message(
-        chat_id=update.effective_chat.id,
-        text=report,
-        parse_mode="HTML"
-    )
-    
-    # Предложение подписки
-    await send_subscription_offer(update, context, archetype_name)
+            
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=report,
+                parse_mode="HTML"
+            )
+            await send_subscription_offer(update, context, archetype_name)
+            
+        elif payment.status in ["pending", "waiting_for_capture"]:
+            await query.edit_message_text(
+                "⏳ <b>Платёж обрабатывается...</b>\n\nПопробуйте проверить через минуту.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Проверить снова", callback_data="check_payment")],
+                    [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+                ]),
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                "❌ <b>Платёж не завершён</b>\n\nПопробуйте оплатить снова.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Оплатить снова", callback_data="buy_report")],
+                    [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+                ]),
+                parse_mode="HTML"
+            )
+            
+    except Exception as e:
+        logger.error(f"Payment check error: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка проверки платежа. Попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Проверить снова", callback_data="check_payment")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
 
 async def send_subscription_offer(update, context, archetype_name):
     """Отправка предложения подписки"""
@@ -440,36 +513,116 @@ async def buy_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    text = """💳 <b>Оформление подписки</b>
+    archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
+    user_id = update.effective_user.id
+    
+    if not YOOKASSA_SHOP_ID or not YOOKASSA_SECRET_KEY:
+        text = """💳 <b>Оформление подписки</b>
 
 Тариф: Коды недели
 Сумма: 199 ₽/месяц
 
-Для оплаты перейдите по ссылке:
-[ССЫЛКА_НА_ОПЛАТУ_ПОДПИСКИ]
+⚠️ <b>Платёжная система временно недоступна</b>"""
+        
+        keyboard = [
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+    
+    try:
+        payment = Payment.create({
+            "amount": {
+                "value": "199.00",
+                "currency": "RUB"
+            },
+            "confirmation": {
+                "type": "redirect",
+                "return_url": f"https://t.me/{context.bot.username}"
+            },
+            "capture": True,
+            "description": f"Коды недели: {archetype_name}",
+            "metadata": {
+                "user_id": str(user_id),
+                "product": "subscription",
+                "archetype": archetype_name
+            }
+        })
+        
+        context.user_data["sub_payment_id"] = payment.id
+        pay_url = payment.confirmation.confirmation_url
+        
+        text = f"""💳 <b>Оформление подписки</b>
 
-После оплаты нажмите кнопку ниже 👇"""
-    
-    keyboard = [
-        [InlineKeyboardButton("✅ Я оплатил(а)", callback_data="confirm_sub")],
-        [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")],
-    ]
-    
-    await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+Тариф: Коды недели
+Сумма: 199 ₽/месяц
+
+Нажмите кнопку ниже для оплаты 👇"""
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 Оплатить 199 ₽", url=pay_url)],
+            [InlineKeyboardButton("✅ Я оплатил(а)", callback_data="confirm_sub")],
+            [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")],
+        ]
+        
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Subscription payment error: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка создания платежа. Попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
 
 async def confirm_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    payment_id = context.user_data.get("sub_payment_id")
     archetype_name = context.user_data.get("archetype_name", "Проводник Истины")
     
-    await query.edit_message_text(
-        f"🎉 <b>Подписка оформлена!</b>\n\n"
-        f"Архетип: {archetype_name}\n"
-        f"Следующий код: в это воскресенье\n\n"
-        f"Ты можешь отменить подписку в любой момент через /cancel",
-        parse_mode="HTML"
-    )
+    if not payment_id:
+        await query.edit_message_text(
+            "❌ Платёж не найден.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📬 Получить коды — 199 ₽/мес", callback_data="buy_subscription")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
+        return
+    
+    try:
+        payment = Payment.find_one(payment_id)
+        
+        if payment.status == "succeeded":
+            await query.edit_message_text(
+                f"🎉 <b>Подписка оформлена!</b>\n\n"
+                f"Архетип: {archetype_name}\n"
+                f"Следующий код: в это воскресенье\n\n"
+                f"Ты можешь отменить подписку в любой момент через /cancel",
+                parse_mode="HTML"
+            )
+        else:
+            await query.edit_message_text(
+                "⏳ <b>Платёж ещё обрабатывается...</b>\n\nПопробуйте проверить позже.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔄 Проверить снова", callback_data="confirm_sub")],
+                    [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+                ]),
+                parse_mode="HTML"
+            )
+            
+    except Exception as e:
+        logger.error(f"Subscription check error: {e}")
+        await query.edit_message_text(
+            "❌ Ошибка проверки. Попробуйте позже.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🔄 Проверить снова", callback_data="confirm_sub")],
+                [InlineKeyboardButton("◀️ Назад", callback_data="back_to_result")]
+            ])
+        )
 
 async def back_to_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await show_result(update, context)
